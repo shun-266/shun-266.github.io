@@ -3,28 +3,15 @@
 
 <head>
 <meta charset="utf-8">
-<title>Hello OpenCV.js</title>
+<title>ArUcojs</title>
 </head>
 
 <body>
-<h1>Hello OpenCV.js</h1>
+<h1>Video Calling</h1>
 
 <!-- opencv.js の読み込み状態を表示する -->
 <p id="status">OpenCV.js is loading...</p>
 <div>
-
-  <!-- 読み込んだ画像の表示に使う canvas -->
-  <div class="inputoutput">
-    <img id="imageSrc" alt="No Image" />
-    <div class="caption">imageSrc</div>
-    <input type="file" id="fileInput" name="file" />
-  </div>
-
-  <!-- OpenCV.js による処理結果の表示に使う canvas -->
-  <div class="inputoutput">
-    <canvas id="canvasOutput" ></canvas>
-    <div class="caption">canvasOutput</div>
-  </div>
 
   <!-- ビデオのキャプチャに用いる video -->
   <div class="inputoutput">
@@ -42,33 +29,6 @@
 
 </div>
 <script type="text/javascript">
-
-  // 読み込んだ画像の表示に使う canvas 要素
-  let imgElement = document.getElementById("imageSrc")
-
-  // 画像ファイルの読み込みに使う input 要素
-  let inputElement = document.getElementById("fileInput")
-
-  // ファイルの読み込みに変化があったら
-  inputElement.addEventListener("change", (e) => {
-
-    // そのファイルの内容を表示に使う canvas 要素に設定する
-    imgElement.src = URL.createObjectURL(e.target.files[0])
-
-  }, false)
-
-  // 画像の読み込みが完了したら
-  imgElement.onload = function() {
-
-    // OpenCV.js の imread() を使って Mat 型に変換して
-    let mat = cv.imread(imgElement)
-
-    // OpenCV.js の imshow() を使って表示する
-    cv.imshow('canvasOutput', mat)
-
-    // Mat 型に変換した画像データはもう使わないのでメモリを開放する
-    mat.delete
-  }
 
   // ビデオの処理結果の表示に使う canvas 要素
   let videoOutput = document.getElementById("videoOutput")
