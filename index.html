@@ -1,95 +1,161 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>ArUcojs</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Handpose and ArUco Marker Detection</title>
+
+  <!-- Import MediaPipe scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
+
+  <!-- Import ArUco.js for marker detection -->
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/aruco.js"></script>
+
+  <script>
+    let video, canvas, context, imageData, handLandmarker, detector;
+
+    // Initialize the app
+    const init = async () => {
+      // Set up stats for performance monitoring
+      const stats = new Stats();
+      document.body.appendChild(stats.dom);
+
+      // Get video and canvas elements
+      video = document.getElementById("video");
+      canvas = document.getElementById("canvas");
+      context = canvas.getContext("2d");
+      
+      // Set canvas size
+      canvas.width = 640;
+      canvas.height = 480;
+
+      // Set up webcam
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices
+          .getUserMedia({ video: true })
+          .then(function (stream) {
+            if ("srcObject" in video) {
+              video.srcObject = stream;
+            } else {
+              video.src = window.URL.createObjectURL(stream);
+            }
+            video.play();
+          })
+          .catch(function (err) {
+            console.log(err.name + ": " + err.message);
+          });
+      }
+
+      // Initialize MediaPipe Handpose
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      );
+      handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: "./hand_landmarker.task", // Update the model path if necessary
+          delegate: "CPU"
+        },
+        numHands: 2,
+      });
+
+      // Initialize ArUco Marker detector
+      detector = new AR.Detector();
+
+      // Start the animation loop
+      requestAnimationFrame(tick);
+    };
+
+    // Main animation loop
+    const tick = () => {
+      requestAnimationFrame(tick);
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        snapshot();
+
+        // Detect hand landmarks with MediaPipe
+        detectHandLandmarks();
+
+        // Detect ArUco markers
+        detectArUcoMarkers();
+
+        // Performance stats
+        stats.begin();
+        stats.end();
+      }
+    };
+
+    // Capture a frame from the video
+    const snapshot = () => {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+    };
+
+    // Detect and draw hand landmarks
+    const detectHandLandmarks = () => {
+      const startTimeMs = performance.now();
+      const results = handLandmarker.detectForVideo(video, startTimeMs);
+      
+      context.save();
+      context.clearRect(0, 0, canvas.width, canvas.height); // Clear previous frame
+      context.drawImage(video, 0, 0, canvas.width, canvas.height); // Draw video frame
+
+      if (results.landmarks) {
+        for (const landmarks of results.landmarks) {
+          drawConnectors(context, landmarks, HAND_CONNECTIONS, {
+            color: "#00FF00",
+            lineWidth: 5
+          });
+          drawLandmarks(context, landmarks, { color: "#FF0000", lineWidth: 2 });
+        }
+      }
+
+      context.restore();
+    };
+
+    // Detect and draw ArUco markers
+    const detectArUcoMarkers = () => {
+      const markers = detector.detect(imageData);
+      drawArUcoMarkers(markers);
+    };
+
+    // Draw the detected ArUco markers
+    const drawArUcoMarkers = (markers) => {
+      context.lineWidth = 3;
+      for (let i = 0; i < markers.length; ++i) {
+        const corners = markers[i].corners;
+        context.strokeStyle = "red";
+        context.beginPath();
+        
+        for (let j = 0; j < corners.length; ++j) {
+          let corner = corners[j];
+          context.moveTo(corner.x, corner.y);
+          corner = corners[(j + 1) % corners.length];
+          context.lineTo(corner.x, corner.y);
+        }
+
+        context.stroke();
+        context.closePath();
+        
+        context.strokeStyle = "green";
+        context.strokeRect(corners[0].x - 2, corners[0].y - 2, 4, 4);
+      }
+    };
+
+    window.onload = init;
+  </script>
 </head>
 
-<body>
-<h1>Video Calling</h1>
-
-<!-- opencv.js の読み込み状態を表示する -->
-<p id="status">OpenCV.js is loading...</p>
-<div>
-
-  <!-- ビデオのキャプチャに用いる video -->
-  <div class="inputoutput">
-    <video autoplay muted playsinline id="videoInput">videoInput</video>
-    <div class="caption">videoInput</div>
-  </div>
-
-  <!-- OpenCV.js によるビデオの処理結果の表示に使う canvas -->
-  <div class="inputoutput">
-    <canvas id="videoOutput" ></canvas>
-    <div class="caption">videoOutput
-    <input type="button" id="startButton" value="start" />
+<body style="font-family: monospace;">
+  <center>
+    <div style="margin: 10px;">
+      <strong>-= Handpose and ArUco Marker Detector =-</strong>
     </div>
-  </div>
-
-</div>
-<script type="text/javascript">
-
-  // ビデオの処理結果の表示に使う canvas 要素
-  let videoOutput = document.getElementById("videoOutput")
-
-  // ビデオの処理結果の表示に使う canvas 要素のコンテキスト
-  let videoContext = videoOutput.getContext("2d")
-
-  // ビデオのキャプチャ開始ボタンの input 要素
-  let startButton = document.getElementById("startButton")
-
-  // キャプチャ開始ボタンをクリックしたら
-  startButton.addEventListener("click", (e) => {
-
-    // video 要素を取り出して
-    let video = document.getElementById("videoInput")
-
-    // その video 要素のデバイスの設定を行って再生を開始する
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-      .then(function(stream) {
-        video.srcObject = stream
-        video.play()
-      })
-      .catch(function(err) {
-        console.log("An error occurred! " + err)
-      })
-
-    // キャプチャするフレームレート
-    const FPS = 30
-
-    // ビデオのフレームの処理
-    function processVideo() {
-
-      // 現在時刻を取り出して
-      const begin = Date.now()
-
-      // 表示先の canvas のサイズをキャプチャしたビデオのフレームのサイズに合わせて
-      videoOutput.width = video.videoWidth
-      videoOutput.height = video.videoHeight
-
-      // キャプチャしたビデオのフレームを表示したら
-      videoContext.drawImage(video, 0, 0, video.videoWidth, video.videoHeight)
-
-      // 次のフレームの表示タイミングまで待つ
-      const delay = 1000 / FPS - (Date.now() - begin)
-      setTimeout(processVideo, delay);
-    }
-
-    // 最初のフレームを表示する
-    setTimeout(processVideo, 0);
-  }, false)
-
-  // opencv.js の初期化が完了したら表示を更新する
-  var Module = {
-    onRuntimeInitialized() {
-      document.getElementById('status').innerHTML = 'OpenCV.js is ready.'
-    }
-  }
-</script>
-
-<!-- opencv.js を非同期に読み込む -->
-<script async src="opencv.js" type="text/javascript"></script>
+    <video id="video" style="display:none" autoplay="true"></video>
+    <canvas id="canvas" style="width:640px; height:480px;"></canvas>
+    <div style="margin: 15px;">
+      <strong>Powered by <a href="https://damianofalcioni.github.io/js-aruco2/">js-aruco2</a> and MediaPipe</strong>
+    </div>
+  </center>
 </body>
-
 </html>
