@@ -1,164 +1,216 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Handpose and ArUco Marker Detection</title>
+  <meta charset="utf-8">
+  <title>Hand Tracking & AR Marker Detector</title>
 
-  <!-- Import MediaPipe scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
+  <!-- MediaPipeライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
-  <!-- Import Stats.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js"></script>
-  
-  <!-- Import ArUco.js for marker detection -->
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/js-aruco2@2.0.0/aruco.js"></script>
+  <!-- ARマーカー用ライブラリ -->
+  <script type="text/javascript" src="libs/polyfill.js"></script>
+  <script type="text/javascript" src="../../src/cv.js"></script>
+  <script type="text/javascript" src="../../src/aruco.js"></script>
 
-  <script>
-    let video, canvas, context, imageData, handLandmarker, detector;
-
-    // Initialize the app
-    const init = async () => {
-      // Set up stats for performance monitoring
-      const stats = new Stats();
-      document.body.appendChild(stats.dom);
-
-      // Get video and canvas elements
-      video = document.getElementById("video");
-      canvas = document.getElementById("canvas");
-      context = canvas.getContext("2d");
-      
-      // Set canvas size
-      canvas.width = 640;
-      canvas.height = 480;
-
-      // Set up webcam
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices
-          .getUserMedia({ video: true })
-          .then(function (stream) {
-            if ("srcObject" in video) {
-              video.srcObject = stream;
-            } else {
-              video.src = window.URL.createObjectURL(stream);
-            }
-            video.play();
-          })
-          .catch(function (err) {
-            console.log(err.name + ": " + err.message);
-          });
-      }
-
-      // Initialize MediaPipe Handpose
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-      );
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: "./hand_landmarker.task", // Update the model path if necessary
-          delegate: "CPU"
-        },
-        numHands: 2,
-      });
-
-      // Initialize ArUco Marker detector
-      detector = new AR.Detector();
-
-      // Start the animation loop
-      requestAnimationFrame(tick);
-    };
-
-    // Main animation loop
-    const tick = () => {
-      requestAnimationFrame(tick);
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        snapshot();
-
-        // Detect hand landmarks with MediaPipe
-        detectHandLandmarks();
-
-        // Detect ArUco markers
-        detectArUcoMarkers();
-
-        // Performance stats
-        stats.begin();
-        stats.end();
-      }
-    };
-
-    // Capture a frame from the video
-    const snapshot = () => {
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    };
-
-    // Detect and draw hand landmarks
-    const detectHandLandmarks = () => {
-      const startTimeMs = performance.now();
-      const results = handLandmarker.detectForVideo(video, startTimeMs);
-      
-      context.save();
-      context.clearRect(0, 0, canvas.width, canvas.height); // Clear previous frame
-      context.drawImage(video, 0, 0, canvas.width, canvas.height); // Draw video frame
-
-      if (results.landmarks) {
-        for (const landmarks of results.landmarks) {
-          drawConnectors(context, landmarks, HAND_CONNECTIONS, {
-            color: "#00FF00",
-            lineWidth: 5
-          });
-          drawLandmarks(context, landmarks, { color: "#FF0000", lineWidth: 2 });
-        }
-      }
-
-      context.restore();
-    };
-
-    // Detect and draw ArUco markers
-    const detectArUcoMarkers = () => {
-      const markers = detector.detect(imageData);
-      drawArUcoMarkers(markers);
-    };
-
-    // Draw the detected ArUco markers
-    const drawArUcoMarkers = (markers) => {
-      context.lineWidth = 3;
-      for (let i = 0; i < markers.length; ++i) {
-        const corners = markers[i].corners;
-        context.strokeStyle = "red";
-        context.beginPath();
-        
-        for (let j = 0; j < corners.length; ++j) {
-          let corner = corners[j];
-          context.moveTo(corner.x, corner.y);
-          corner = corners[(j + 1) % corners.length];
-          context.lineTo(corner.x, corner.y);
-        }
-
-        context.stroke();
-        context.closePath();
-        
-        context.strokeStyle = "green";
-        context.strokeRect(corners[0].x - 2, corners[0].y - 2, 4, 4);
-      }
-    };
-
-    window.onload = init;
-  </script>
+  <style>
+    body {
+      font-family: monospace;
+    }
+    canvas {
+      width: 640px;
+      height: 480px;
+    }
+    video {
+      display: none;
+    }
+  </style>
 </head>
 
-<body style="font-family: monospace;">
+<body>
   <center>
-    <div style="margin: 10px;">
-      <strong>-= Handpose and ArUco Marker Detector =-</strong>
-    </div>
-    <video id="video" style="display:none" autoplay="true"></video>
-    <canvas id="canvas" style="width:640px; height:480px;"></canvas>
+    <div style="margin: 10px;"><strong>Hand Tracking & AR Marker Detector</strong></div>
+
+    <!-- Webカメラの映像（入力） -->
+    <video id="input" autoplay></video>
+
+    <!-- カメラ入力と手のランドマーク、ARマーカーを表示するキャンバス -->
+    <canvas id="canvas" width="640" height="480"></canvas>
+
     <div style="margin: 15px;">
-      <strong>Powered by <a href="https://damianofalcioni.github.io/js-aruco2/">js-aruco2</a> and MediaPipe</strong>
+      <strong>Powered by <a href="https://damianofalcioni.github.io/js-aruco2/">js-aruco2</a> & MediaPipe Hands</strong>
     </div>
   </center>
+
+  <script>
+    // カメラとキャンバスの設定
+    const video = document.getElementById('input');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let imageData;
+    let detector;
+    let hands;
+
+    // カメラデバイス選択用のUI
+const cameraSelect = document.createElement('select');
+document.body.insertBefore(cameraSelect, document.body.firstChild);
+
+// 利用可能なカメラデバイスの取得
+navigator.mediaDevices.enumerateDevices()
+  .then(devices => {
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    videoDevices.forEach(device => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+      cameraSelect.appendChild(option);
+    });
+
+    // 最初のデバイスをデフォルトで選択
+    if (videoDevices.length > 0) {
+      startCamera(videoDevices[0].deviceId);
+    }
+  })
+  .catch(err => console.error('Error enumerating devices:', err));
+
+// カメラを開始
+function startCamera(deviceId) {
+  navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId } })
+    .then(stream => {
+      if ('srcObject' in video) {
+        video.srcObject = stream;
+      } else {
+        video.src = window.URL.createObjectURL(stream);
+      }
+    })
+    .catch(err => console.error('Error accessing camera:', err));
+}
+
+// カメラ選択変更時に再設定
+cameraSelect.addEventListener('change', () => {
+  startCamera(cameraSelect.value);
+});
+
+    // ARマーカー検出器の設定
+    function setupAR() {
+      detector = new AR.Detector();
+      requestAnimationFrame(tickAR);
+    }
+
+    // MediaPipe Handsのセットアップ
+    function setupHands() {
+      const config = {
+        locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      };
+      hands = new Hands(config);
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      hands.onResults(results => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+        if (results.multiHandLandmarks) {
+          results.multiHandLandmarks.forEach(marks => {
+            drawConnectors(ctx, marks, HAND_CONNECTIONS, { color: '#0f0' });
+            drawLandmarks(ctx, marks, { color: '#f00' });
+            
+            // 手のランドマークの座標をコンソールに出力
+            console.log("Hand Landmarks:");
+            marks.forEach((landmark, index) => {
+              console.log(`Landmark ${index}: (${landmark.x}, ${landmark.y}, ${landmark.z})`);
+            });
+          });
+        }
+      });
+
+      const camera = new Camera(video, {
+        onFrame: async () => {
+          await hands.send({ image: video });
+        },
+        width: 640,
+        height: 480
+      });
+
+      camera.start();
+    }
+
+    // ARマーカーの検出を繰り返す
+    function tickAR() {
+      requestAnimationFrame(tickAR);
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        snapshotAR();
+        var markers = detector.detect(imageData);
+        drawCorners(markers);
+        drawId(markers);
+        
+        // ARマーカーのコーナー座標をコンソールに出力
+        console.log("AR Markers:");
+        markers.forEach(marker => {
+          console.log(`Marker ID: ${marker.id}`);
+          marker.corners.forEach((corner, index) => {
+            console.log(`Corner ${index}: (${corner.x}, ${corner.y})`);
+          });
+        });
+      }
+    }
+
+    // ARマーカー用のスナップショット
+    function snapshotAR() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    }
+
+    // ARマーカーのコーナーを描画
+    function drawCorners(markers) {
+      var corners, corner, i, j;
+      ctx.lineWidth = 3;
+      for (i = 0; i !== markers.length; ++i) {
+        corners = markers[i].corners;
+        ctx.strokeStyle = "red";
+        ctx.beginPath();
+        for (j = 0; j !== corners.length; ++j) {
+          corner = corners[j];
+          ctx.moveTo(corner.x, corner.y);
+          corner = corners[(j + 1) % corners.length];
+          ctx.lineTo(corner.x, corner.y);
+        }
+        ctx.stroke();
+        ctx.closePath();
+        ctx.strokeStyle = "green";
+        ctx.strokeRect(corners[0].x - 2, corners[0].y - 2, 4, 4);
+      }
+    }
+
+    // ARマーカーのIDを描画
+    function drawId(markers) {
+      var corners, corner, x, y, i, j;
+      ctx.strokeStyle = "blue";
+      ctx.lineWidth = 1;
+      for (i = 0; i !== markers.length; ++i) {
+        corners = markers[i].corners;
+        x = Infinity;
+        y = Infinity;
+        for (j = 0; j !== corners.length; ++j) {
+          corner = corners[j];
+          x = Math.min(x, corner.x);
+          y = Math.min(y, corner.y);
+        }
+        ctx.strokeText(markers[i].id, x, y);
+      }
+    }
+
+    // ページの読み込み時に初期化
+    window.onload = function() {
+      setupHands(); // MediaPipe Handsの設定
+      setupAR();    // ARマーカーの設定
+    }
+  </script>
 </body>
 </html>
