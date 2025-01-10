@@ -1,96 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Charuco Calibration with Camera</title>
-    <style>
-        video, canvas {
-            max-height: 95vh;
-        }
-        body {
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            height: 100vh;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCV.js Camera Test</title>
+    <script async src="opencv.js"></script>
 </head>
 <body>
     <video id="camera" autoplay playsinline></video>
-    <canvas id="result"></canvas>
-    <script async src="opencv.js"></script>
+    <canvas id="output"></canvas>
     <script>
-        // OpenCV.jsの初期化が完了したら実行
-        let video, canvas, ctx, streaming = false;
+        let video = document.getElementById('camera');
+        let canvas = document.getElementById('output');
+        let ctx = canvas.getContext('2d');
+        let streaming = false;
 
-        const act = (frame) => {
-            const dict = cv.getPredefinedDictionary(cv.DICT_6X6_1000);
-            const charucoParam = new cv.aruco_CharucoParameters();
-            const detectParam = new cv.aruco_DetectorParameters();
-            const refineParam = new cv.aruco_RefineParameters(10, 3, true);
-
-            const squareNum = new cv.Size(5, 7);
-            const squareLength = 34.7 * 0.001;
-            const markerLength = squareLength * 120 / 200;
-            const ids = new cv.Mat();
-            const board = new cv.aruco_CharucoBoard(squareNum, squareLength, markerLength, dict, ids);
-            const multiDetector = new cv.aruco_CharucoDetector(board, charucoParam, detectParam, refineParam);
-
-            const rgb = new cv.Mat();
-            cv.cvtColor(frame, rgb, cv.COLOR_RGBA2RGB, 0);
-
-            // ボードの検出
-            const charucoCorners = new cv.Mat();
-            const charucoCornerIds = new cv.Mat();   
-            const markerCorners = new cv.MatVector();
-            const markerIds = new cv.Mat();            
-            multiDetector.detectBoard(rgb, charucoCorners, charucoCornerIds, markerCorners, markerIds);
-
-            cv.drawDetectedMarkers(rgb, markerCorners, markerIds);
-
-            // チェックコーナーを描画する
-            const col = new cv.Scalar(255, 128, 0);
-            cv.drawDetectedCornersCharuco(rgb, charucoCorners, charucoCornerIds, col);
-
-            // Canvasに描画
-            cv.imshow('result', rgb);
-
-            // メモリ解放
-            frame.delete();
-            rgb.delete();
-            charucoCorners.delete();
-            charucoCornerIds.delete();
-            markerCorners.delete();
-            markerIds.delete();
-        };
-
-        // カメラ映像をキャプチャ
         const processVideo = () => {
             if (!streaming) return;
 
-            const frame = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-            ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-            const imageData = ctx.getImageData(0, 0, video.videoWidth, video.videoHeight);
-            frame.data.set(imageData.data);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            let src = cv.imread(canvas);
+            let gray = new cv.Mat();
+            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            cv.imshow('output', gray);
+            src.delete();
+            gray.delete();
 
-            act(frame);
-
-            // 次のフレームを処理
             requestAnimationFrame(processVideo);
         };
 
-        // カメラ映像の初期化
-        const startCamera = async () => {
-            video = document.getElementById('camera');
-            canvas = document.getElementById('result');
-            ctx = canvas.getContext('2d');
-
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
                 video.srcObject = stream;
                 video.addEventListener('loadedmetadata', () => {
                     canvas.width = video.videoWidth;
@@ -98,16 +38,10 @@
                     streaming = true;
                     processVideo();
                 });
-            } catch (error) {
-                console.error("カメラの初期化に失敗しました:", error);
-            }
-        };
-
-        Module = {
-            onRuntimeInitialized: () => {
-                startCamera();
-            }
-        };
+            })
+            .catch(error => {
+                console.error("カメラの初期化に失敗しました:", error.name, error.message, error);
+            });
     </script>
 </body>
 </html>
