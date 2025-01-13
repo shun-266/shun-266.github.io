@@ -1,47 +1,124 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenCV.js Camera Test</title>
-    <script async src="opencv.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カメラキャリブレーション確認</title>
+  <style>canvas { max-height: 95vh; }</style>
 </head>
 <body>
-    <video id="camera" autoplay playsinline></video>
-    <canvas id="output"></canvas>
-    <script>
-        let video = document.getElementById('camera');
-        let canvas = document.getElementById('output');
-        let ctx = canvas.getContext('2d');
-        let streaming = false;
+  <select id="cameraSelect"></select>
+  <video id="input" width="640" height="480" autoplay playsinline></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
 
-        const processVideo = () => {
-            if (!streaming) return;
+  <script src="opencv.js"></script>
+  <script>
+    const video = document.getElementById('input');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const cameraSelect = document.getElementById('cameraSelect');
 
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            let src = cv.imread(canvas);
-            let gray = new cv.Mat();
-            cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-            cv.imshow('output', gray);
-            src.delete();
-            gray.delete();
+    cv.onRuntimeInitialized = () => {
+      console.log('OpenCV initialized successfully.');
 
-            requestAnimationFrame(processVideo);
-        };
+      // キャリブレーション用のボード設定
+      const board = new cv.aruco_CharucoBoard(5, 7, 0.034, 0.017, cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_1000));
+      const detectorParams = new cv.aruco_DetectorParameters();
+      const charucoCorners = new cv.Mat();
+      const charucoIds = new cv.Mat();
+      const markerCorners = new cv.MatVector();
+      const markerIds = new cv.Mat();
 
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-                video.addEventListener('loadedmetadata', () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    streaming = true;
-                    processVideo();
-                });
-            })
-            .catch(error => {
-                console.error("カメラの初期化に失敗しました:", error.name, error.message, error);
-            });
-    </script>
+      const frame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+      const gray = new cv.Mat();
+
+      // カメラ映像の処理
+      function captureFrame() {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        cv.matFromImageData(imageData, frame);
+        cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY);
+
+        // マーカーの検出
+        try {
+          cv.aruco.detectMarkers(gray, board.dictionary, markerCorners, markerIds, detectorParams);
+          console.log(`Detected ${markerIds.rows} markers.`);
+          
+          if (markerIds.rows > 0) {
+            // Charucoボードのコーナー補間
+            const valid = cv.aruco.interpolateCornersCharuco(markerCorners, markerIds, gray, board, charucoCorners, charucoIds);
+            console.log(`Interpolated ${charucoIds.rows} Charuco corners.`);
+
+            if (valid > 0) {
+              // 検出したマーカーとコーナーを描画
+              cv.aruco.drawDetectedMarkers(frame, markerCorners, markerIds);
+              cv.aruco.drawDetectedCornersCharuco(frame, charucoCorners, charucoIds);
+
+              // キャリブレーションの試行
+              const cameraMatrix = new cv.Mat();
+              const distCoeffs = new cv.Mat();
+              const rvecs = new cv.MatVector();
+              const tvecs = new cv.MatVector();
+
+              const objPoints = new cv.MatVector();
+              const imgPoints = new cv.MatVector();
+              objPoints.push_back(board.objPoints);
+              imgPoints.push_back(charucoCorners);
+
+              const size = new cv.Size(video.width, video.height);
+              const rms = cv.calibrateCamera(objPoints, imgPoints, size, cameraMatrix, distCoeffs, rvecs, tvecs);
+
+              console.log('Calibration RMS error:', rms);
+              console.log('Camera Matrix:', cameraMatrix.data64F);
+              console.log('Distortion Coefficients:', distCoeffs.data64F);
+
+              // 結果を表示
+              cv.imshow(canvas, frame);
+            }
+          }
+        } catch (err) {
+          console.error('Error during processing:', err);
+        }
+
+        // 次のフレームをキャプチャ
+        requestAnimationFrame(captureFrame);
+      }
+
+      // 最初のフレームをキャプチャ
+      captureFrame();
+    };
+
+    // カメラデバイス列挙
+    navigator.mediaDevices.enumerateDevices()
+      .then(devices => {
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        videoDevices.forEach(device => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Camera ${cameraSelect.length + 1}`;
+          cameraSelect.appendChild(option);
+        });
+
+        if (videoDevices.length > 0) {
+          startCamera(videoDevices[0].deviceId);
+        }
+      })
+      .catch(err => console.error('Error enumerating devices:', err));
+
+    // カメラを開始
+    function startCamera(deviceId) {
+      navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId } })
+        .then(stream => {
+          console.log('Camera stream started successfully.');
+          video.srcObject = stream;
+        })
+        .catch(err => console.error('Error accessing camera:', err));
+    }
+
+    // カメラ変更時
+    cameraSelect.addEventListener('change', () => {
+      startCamera(cameraSelect.value);
+    });
+  </script>
 </body>
 </html>
