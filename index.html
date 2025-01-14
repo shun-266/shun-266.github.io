@@ -1,124 +1,174 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>カメラキャリブレーション確認</title>
-  <style>canvas { max-height: 95vh; }</style>
-</head>
-<body>
-  <select id="cameraSelect"></select>
-  <video id="input" width="640" height="480" autoplay playsinline></video>
-  <canvas id="canvas" width="640" height="480"></canvas>
+  <meta charset="utf-8">
+  <title>Hand Tracking & AR Marker Detector with Self-Localization</title>
 
-  <script src="opencv.js"></script>
+  <!-- MediaPipeライブラリ -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+  <!-- ARマーカー用ライブラリ -->
+  <script type="text/javascript" src="libs/polyfill.js"></script>
+  <script type="text/javascript" src="../../src/cv.js"></script>
+  <script type="text/javascript" src="../../src/aruco.js"></script>
+
+  <style>
+    body {
+      font-family: monospace;
+    }
+    canvas {
+      width: 640px;
+      height: 480px;
+    }
+    video {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <center>
+    <div style="margin: 10px;"><strong>Hand Tracking & AR Marker Detector with Self-Localization</strong></div>
+
+    <!-- Webカメラの映像（入力） -->
+    <video id="input" autoplay></video>
+
+    <!-- カメラ入力と手のランドマーク、ARマーカーを表示するキャンバス -->
+    <canvas id="canvas" width="640" height="480"></canvas>
+
+    <div style="margin: 15px;">
+      <strong>Powered by js-aruco2 & MediaPipe Hands</strong>
+    </div>
+  </center>
+
   <script>
     const video = document.getElementById('input');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const cameraSelect = document.getElementById('cameraSelect');
 
-    cv.onRuntimeInitialized = () => {
-      console.log('OpenCV initialized successfully.');
+    let imageData;
+    let detector;
 
-      // キャリブレーション用のボード設定
-      const board = new cv.aruco_CharucoBoard(5, 7, 0.034, 0.017, cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_1000));
-      const detectorParams = new cv.aruco_DetectorParameters();
-      const charucoCorners = new cv.Mat();
-      const charucoIds = new cv.Mat();
-      const markerCorners = new cv.MatVector();
-      const markerIds = new cv.Mat();
+    // カメラキャリブレーションパラメータ
+    const cameraMatrix = [
+      [1018.8031913526505, 0, 509.14712773712756],
+      [0, 1016.5572863094986, 509.14712773712756],
+      [0, 0, 1]
+    ];
+    const distortionCoefficients = [
+      0.21011422384691603,
+      -0.55078108269720494,
+      -0.0055280880757881366,
+      0.001401219302638096,
+      0.46081215822664523
+    ];
 
-      const frame = new cv.Mat(video.height, video.width, cv.CV_8UC4);
-      const gray = new cv.Mat();
-
-      // カメラ映像の処理
-      function captureFrame() {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        cv.matFromImageData(imageData, frame);
-        cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY);
-
-        // マーカーの検出
-        try {
-          cv.aruco.detectMarkers(gray, board.dictionary, markerCorners, markerIds, detectorParams);
-          console.log(`Detected ${markerIds.rows} markers.`);
-          
-          if (markerIds.rows > 0) {
-            // Charucoボードのコーナー補間
-            const valid = cv.aruco.interpolateCornersCharuco(markerCorners, markerIds, gray, board, charucoCorners, charucoIds);
-            console.log(`Interpolated ${charucoIds.rows} Charuco corners.`);
-
-            if (valid > 0) {
-              // 検出したマーカーとコーナーを描画
-              cv.aruco.drawDetectedMarkers(frame, markerCorners, markerIds);
-              cv.aruco.drawDetectedCornersCharuco(frame, charucoCorners, charucoIds);
-
-              // キャリブレーションの試行
-              const cameraMatrix = new cv.Mat();
-              const distCoeffs = new cv.Mat();
-              const rvecs = new cv.MatVector();
-              const tvecs = new cv.MatVector();
-
-              const objPoints = new cv.MatVector();
-              const imgPoints = new cv.MatVector();
-              objPoints.push_back(board.objPoints);
-              imgPoints.push_back(charucoCorners);
-
-              const size = new cv.Size(video.width, video.height);
-              const rms = cv.calibrateCamera(objPoints, imgPoints, size, cameraMatrix, distCoeffs, rvecs, tvecs);
-
-              console.log('Calibration RMS error:', rms);
-              console.log('Camera Matrix:', cameraMatrix.data64F);
-              console.log('Distortion Coefficients:', distCoeffs.data64F);
-
-              // 結果を表示
-              cv.imshow(canvas, frame);
-            }
-          }
-        } catch (err) {
-          console.error('Error during processing:', err);
-        }
-
-        // 次のフレームをキャプチャ
-        requestAnimationFrame(captureFrame);
-      }
-
-      // 最初のフレームをキャプチャ
-      captureFrame();
-    };
-
-    // カメラデバイス列挙
-    navigator.mediaDevices.enumerateDevices()
-      .then(devices => {
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
-        videoDevices.forEach(device => {
-          const option = document.createElement('option');
-          option.value = device.deviceId;
-          option.text = device.label || `Camera ${cameraSelect.length + 1}`;
-          cameraSelect.appendChild(option);
-        });
-
-        if (videoDevices.length > 0) {
-          startCamera(videoDevices[0].deviceId);
-        }
-      })
-      .catch(err => console.error('Error enumerating devices:', err));
-
-    // カメラを開始
-    function startCamera(deviceId) {
-      navigator.mediaDevices.getUserMedia({ video: { deviceId: deviceId } })
-        .then(stream => {
-          console.log('Camera stream started successfully.');
-          video.srcObject = stream;
-        })
-        .catch(err => console.error('Error accessing camera:', err));
+    // ARマーカー検出器の設定
+    function setupAR() {
+      detector = new AR.Detector();
+      requestAnimationFrame(tickAR);
     }
 
-    // カメラ変更時
-    cameraSelect.addEventListener('change', () => {
-      startCamera(cameraSelect.value);
-    });
+    // ARマーカーの検出と自己位置推定
+    function tickAR() {
+      requestAnimationFrame(tickAR);
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        snapshotAR();
+        const markers = detector.detect(imageData);
+
+        // マーカーの描画
+        drawCorners(markers);
+        drawId(markers);
+
+        // 自己位置推定
+        markers.forEach(marker => {
+          const corners = marker.corners.map(corner => [corner.x, corner.y]);
+          const worldCoords = [
+            [-50, -50, 0],
+            [50, -50, 0],
+            [50, 50, 0],
+            [-50, 50, 0]
+          ]; // マーカーの実世界座標（単位: mm）
+
+          const { rotation, translation } = estimatePose(corners, worldCoords);
+          console.log(`Marker ID: ${marker.id}`);
+          console.log('Rotation Matrix:', rotation);
+          console.log('Translation Vector:', translation);
+        });
+      }
+    }
+
+    // ARマーカー用のスナップショット
+    function snapshotAR() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    }
+
+    // 姿勢推定
+    function estimatePose(imagePoints, worldPoints) {
+      const cv = window.cv; // OpenCV.js を使用
+      const matCamera = cv.matFromArray(3, 3, cv.CV_64F, cameraMatrix.flat());
+      const matDistortion = cv.matFromArray(1, distortionCoefficients.length, cv.CV_64F, distortionCoefficients);
+      const matImagePoints = cv.matFromArray(imagePoints.length, 2, cv.CV_64F, imagePoints.flat());
+      const matWorldPoints = cv.matFromArray(worldPoints.length, 3, cv.CV_64F, worldPoints.flat());
+
+      const rvec = new cv.Mat();
+      const tvec = new cv.Mat();
+
+      cv.solvePnP(matWorldPoints, matImagePoints, matCamera, matDistortion, rvec, tvec);
+
+      const rotation = new cv.Mat();
+      cv.Rodrigues(rvec, rotation);
+
+      const rotationArray = [];
+      const translationArray = [];
+      rotation.data64F.forEach(val => rotationArray.push(val));
+      tvec.data64F.forEach(val => translationArray.push(val));
+
+      // 後処理
+      matCamera.delete();
+      matDistortion.delete();
+      matImagePoints.delete();
+      matWorldPoints.delete();
+      rvec.delete();
+      tvec.delete();
+      rotation.delete();
+
+      return { rotation: rotationArray, translation: translationArray };
+    }
+
+    // ARマーカーのコーナーを描画
+    function drawCorners(markers) {
+      ctx.lineWidth = 3;
+      markers.forEach(marker => {
+        const corners = marker.corners;
+        ctx.strokeStyle = "red";
+        ctx.beginPath();
+        corners.forEach((corner, i) => {
+          const nextCorner = corners[(i + 1) % corners.length];
+          ctx.moveTo(corner.x, corner.y);
+          ctx.lineTo(nextCorner.x, nextCorner.y);
+        });
+        ctx.stroke();
+      });
+    }
+
+    // ARマーカーのIDを描画
+    function drawId(markers) {
+      ctx.strokeStyle = "blue";
+      markers.forEach(marker => {
+        const x = marker.corners.reduce((sum, corner) => sum + corner.x, 0) / 4;
+        const y = marker.corners.reduce((sum, corner) => sum + corner.y, 0) / 4;
+        ctx.strokeText(marker.id, x, y);
+      });
+    }
+
+    // ページの読み込み時に初期化
+    window.onload = function() {
+      setupAR();
+    };
   </script>
 </body>
 </html>
