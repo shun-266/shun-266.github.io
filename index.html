@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- Google Search Console -->
     <meta name="google-site-verification" content="ls7kuvIKSqVa_dcixqKvFwl393swvYMkHCkG-xtlCj0">
-    <title>Practice OpenCV.js 1</title>
+    <title>Practice OpenCV.js 2</title>
     <link rel="icon" href="https://neos21.github.io/favicon.ico">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@neos21/neos-normalize@2.0.1/neos-normalize.min.css">
     <!-- Global Site Tag (gtag.js) - Google Analytics -->
@@ -59,24 +59,29 @@ h2 {
   background: #cff;
 }
 
+#error-message {
+  color: #f00;
+}
+
     </style>
   </head>
   <body>
 
-<h1>Practice OpenCV.js 1</h1>
+<h1>Practice OpenCV.js 2</h1>
 <p>
   <button id="start" type="button" disabled>Start</button>
   <button id="stop" type="button" disabled>Stop</button>
   <span id="status">Initializing...</span>
+  <span id="error-message"></span>
 </p>
 
 <div class="preview">
   <div>
-    <h2>Raw Video (Colour)</h2>
+    <h2>Raw Video</h2>
     <div><video id="video" width="640" height="480" playsinline muted autoplay></video></div>
   </div>
   <div>
-    <h2>OpenCV Canvas (Grey)</h2>
+    <h2>OpenCV Canvas (Face Detection)</h2>
     <div><canvas id="canvas" width="640" height="480"></canvas></div>
   </div>
 </div>
@@ -85,7 +90,7 @@ h2 {
 
 <script>
 
-// https://docs.opencv.org/3.4.0/dd/d00/tutorial_js_video_display.html
+// https://docs.opencv.org/3.4.0/df/d6c/tutorial_js_face_detection_camera.html
 
 // Video Settings
 const width  = 640;
@@ -96,8 +101,11 @@ const fps = 30;
 let videoCapture = null;
 let stream = null;
 let isStreaming = false;
-let matSrc = null;
-let matDst = null;
+let matSrc  = null;
+let matDst  = null;
+let matGrey = null;
+let faces = null;
+let classifier = null;
 
 // Elements
 const videoElem  = document.getElementById('video');
@@ -105,6 +113,9 @@ const canvasElem = document.getElementById('canvas');
 const startButtonElem = document.getElementById('start');
 const stopButtonElem  = document.getElementById('stop');
 const statusElem = document.getElementById('status');
+
+// https://docs.opencv.org/3.4.0/haarcascade_frontalface_default.xml
+const faceCascadeFile = './haarcascade_frontalface_default.xml';
 
 // ================================================================================
 
@@ -125,6 +136,11 @@ function onReady() {
   videoElem.height = canvasElem.height = height;
   // Start Video Capture
   videoCapture = new cv.VideoCapture(videoElem);
+  // Load XML File With XHR
+  const utils = new Utils('error-message');  // Set Element ID
+  utils.createFileFromUrl(faceCascadeFile, faceCascadeFile, () => {
+    console.log('Face Cascade File Loaded');
+  });
   // Set Button Events
   startButtonElem.addEventListener('click', onStart);
   startButtonElem.disabled = false;
@@ -153,8 +169,13 @@ function onStart() {
       stream = videoElem.srcObject = _stream;
       videoElem.play();
       
-      matSrc = new cv.Mat(height, width, cv.CV_8UC4);  // For Video Capture
-      matDst = new cv.Mat(height, width, cv.CV_8UC1);  // For Canvas Preview
+      matSrc  = new cv.Mat(height, width, cv.CV_8UC4);  // For Video Capture
+      matDst  = new cv.Mat(height, width, cv.CV_8UC4);  // For Canvas Preview
+      matGrey = new cv.Mat();
+      faces = new cv.RectVector();
+      classifier = new cv.CascadeClassifier();
+      // Load Pre-Trained Classifiers
+      classifier.load(faceCascadeFile);
       
       // Start Process Video
       setTimeout(processVideo, 0);
@@ -188,12 +209,24 @@ function processVideo() {
     
     matSrc.delete();
     matDst.delete();
+    matGrey.delete();
+    faces.delete();
+    classifier.delete();
     return;
   }
   
   const begin = Date.now();
   videoCapture.read(matSrc);  // Capture Video Image To Mat Src
-  cv.cvtColor(matSrc, matDst, cv.COLOR_RGBA2GRAY);  // Convert Colour To Grey
+  matSrc.copyTo(matDst);  // Copy Src To Dst
+  cv.cvtColor(matDst, matGrey, cv.COLOR_RGBA2GRAY, 0);  // Get Grey Image
+  classifier.detectMultiScale(matGrey, faces, 1.1, 3, 0);  // Detect Faces
+  // Draw Faces Rectangle
+  for(let i = 0; i < faces.size(); ++i) {
+    const face = faces.get(i);
+    const point1 = new cv.Point(face.x, face.y);
+    const point2 = new cv.Point(face.x + face.width, face.y + face.height);
+    cv.rectangle(matDst, point1, point2, [255, 0, 0, 255]);
+  }
   cv.imshow('canvas', matDst);  // Set Element ID
   
   // Loop
@@ -202,6 +235,8 @@ function processVideo() {
 }
 
 </script>
+<!-- https://docs.opencv.org/3.4.0/utils.js -->
+<script src="./utils.js"></script>
 <!-- https://docs.opencv.org/3.4.0/opencv.js -->
 <script src="./opencv.js" onload="onCvLoaded();"></script>
 
