@@ -40,18 +40,21 @@
     video: true,
   };
 
+  //ArucoMarkerの検出プログラム、入力値imageは入力映像(入力画像)
   function detectArucoMarkers(image) {
+    //辞書・検出パラメータ・恐らく補正パラメータの定義
+    //4*4のArucoMarkerじゃないと検出されないので注意
     let dictionary = new cv.getPredefinedDictionary(cv.DICT_4X4_50);
     let detectorParam = new cv.aruco_DetectorParameters();
     let refineParam = new cv.aruco_RefineParameters(10,3,true);
-
+    //マーカーの角とIDを格納するためのもの
     let markerCorners = new cv.MatVector();
     let markerIds = new cv.Mat();
-
+    //定義3つを用いてアルコ検出器を使用する形を作る
     let ArucoDetector  = new cv.aruco_ArucoDetector(dictionary,detectorParam,refineParam);
-
+    //入力映像、画像を元にマーカーのコーナーとIDを検出
     ArucoDetector.detectMarkers(image,markerCorners,markerIds);
-
+    //出力確認,typeがid、rowとcolは個数のはず
     console.log("markerIds:", markerIds);
     console.log("markerIds type:", markerIds.type()); // CV_32S であることを確認
     console.log("markerIds rows:", markerIds.rows);
@@ -63,6 +66,7 @@
   function estimatePoseSingleMarkers(corners) {
     // Define the 3D points of the marker in its own coordinate system
 
+    //キャリブレーション結果のカメラ行列と歪み係数を入れている
     let cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
     1019.5941583961693,
     0,
@@ -93,7 +97,6 @@
 
     let rvecs = [];
     let tvecs = [];
-    let trash = [];
 
     for (let i = 0; i < corners.size(); i++) {
         let corner = corners.get(i);
@@ -103,15 +106,16 @@
         
         rvecs.push(rvec);
         tvecs.push(tvec);
-        trash.push(success);
     }
 
+    //メモリリーク防止
     cameraMatrix.delete();
     distortionCoeffs.delete();
     markerPoints.delete(); // Clean up memory
-    return { rvecs, tvecs, trash };
+    return { rvecs, tvecs };
   }
 
+  //ボタンを押すと実行される形だとOpenCVのロード完了後になっている？
   captureButton.addEventListener('click', () => {
     context.drawImage(player, 0, 0, canvas.width, canvas.height);
     let src = cv.imread(canvas);
@@ -123,6 +127,7 @@
 
     let { rvecs, tvecs, trash } = estimatePoseSingleMarkers(markerCorners);
 
+    //出力確認用
     for (let i = 0; i < rvecs.length; i++) {
     console.log(`Marker ${i}:`);
     console.log(`Rotation Vector:`, rvecs[i].data64F);
@@ -131,6 +136,7 @@
     tvecs[i].delete();
     }
 
+    //メモリリーク防止
     markerCorners.delete();
     markerIds.delete();
     src.delete();
