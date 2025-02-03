@@ -1,151 +1,181 @@
 <!DOCTYPE html>
 <html>
-    <head>
-        <!-- Global site tag (gtag.js) - Google Analytics -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id=UA-181029586-2"></script>
-        <script>
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
+<head>
+    <meta charset="UTF-8">
+    <title>AR Detector</title>
+</head>
+<body>
+    <div>
+        <video id="player" playsinline muted autoplay></video>
+    </div>
+    <div>
+        <button id="toggleTracking">ARマーカー検出 & ハンドトラッキング開始</button>
+    </div>
+    <div>
+        <canvas id="canvas" width="640" height="480"></canvas>
+    </div>
 
-          gtag('config', 'UA-181029586-2');
-        </script>
+    <script src="https://docs.opencv.org/4.10.0/opencv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
-        <meta charset="UTF-8">
-        <title>AR Detector</title>
-    </head>
-    <body>
-        <div>
-            <video id="player" controls playsinline muted autoplay></video>
-        </div>
-        <div>
-          <button id="capture">Capture</button>
-        </div>
-        <div>
-            <canvas id="canvas" width=320 height=240></canvas>
-        </div>
-        <div>
-            <canvas id="canvas2" width=320 height=240></canvas>
-        </div>
-        <script src=https://docs.opencv.org/4.10.0/opencv.js></script>
-    </body>
+    <script>
+        const player = document.getElementById('player');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+
+        let isCvLoaded = false;
+        let isTrackingRunning = false;
+
+        const constraints = { video: { width: 640, height: 480 } };
+
+        const hands = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        cv.onRuntimeInitialized = function () {
+            isCvLoaded = true;
+            console.log("OpenCV.js loaded.");
+        };
+
+        navigator.mediaDevices.getUserMedia(constraints)
+            .then((stream) => {
+                player.srcObject = stream;
+            })
+            .catch((err) => console.error("Error accessing camera:", err));
+
+        function onResults(results) {
+            if (!isTrackingRunning) return;
+
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(player, 0, 0, canvas.width, canvas.height);
+
+            if (results.multiHandLandmarks) {
+                for (const [handIndex, landmarks] of results.multiHandLandmarks.entries()) {
+                    console.log(`Hand ${handIndex + 1} Landmarks:`); // 手の番号を表示
+
+                    // 各ランドマークの座標をコンソールに出力
+                    landmarks.forEach((landmark, index) => {
+                        console.log(`Landmark ${index}: x: ${landmark.x}, y: ${landmark.y}, z: ${landmark.z}`);
+                    });
+
+                    // ランドマークをキャンバスに描画
+                    landmarks.forEach((landmark) => {
+                        let x = landmark.x * canvas.width;
+                        let y = landmark.y * canvas.height;
+                        context.beginPath();
+                        context.arc(x, y, 5, 0, 2 * Math.PI);
+                        context.fillStyle = "red";
+                        context.fill();
+                });
+                }
+            }
+
+            if (isTrackingRunning) {
+                requestAnimationFrame(() => hands.send({image: player}));
+            }
+        }
+
+        function detectArucoMarkers(image) {
+            let dictionary = new cv.getPredefinedDictionary(cv.DICT_4X4_50);
+            let detectorParam = new cv.aruco_DetectorParameters();
+            let refineParam = new cv.aruco_RefineParameters(10, 3, true);
+            let markerCorners = new cv.MatVector();
+            let markerIds = new cv.Mat();
+
+            let ArucoDetector = new cv.aruco_ArucoDetector(dictionary, detectorParam, refineParam);
+            ArucoDetector.detectMarkers(image, markerCorners, markerIds);
+
+            return { markerCorners, markerIds };
+        }
+
+        function estimatePoseSingleMarkers(corners) {
+            let cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
+                1019.59, 0, 966.77,
+                0, 1020.80, 547.44,
+                0, 0, 1
+            ]);
+            let distortionCoeffs = cv.matFromArray(1, 5, cv.CV_64F, [
+                0.0712, -0.1499, 0.00076, -0.00257, 0.0754
+            ]);
+            let MarkerSize = 0.060;
+            let markerPoints = cv.matFromArray(4, 1, cv.CV_32FC3, [
+                -MarkerSize / 2, MarkerSize / 2, 0,
+                MarkerSize / 2, MarkerSize / 2, 0,
+                MarkerSize / 2, -MarkerSize / 2, 0,
+                -MarkerSize / 2, -MarkerSize / 2, 0
+            ]);
+
+            let rvecs = [], tvecs = [];
+
+            for (let i = 0; i < corners.size(); i++) {
+                let corner = corners.get(i);
+                let rvec = new cv.Mat();
+                let tvec = new cv.Mat();
+                let success = cv.solvePnP(markerPoints, corner, cameraMatrix, distortionCoeffs, rvec, tvec, false, cv.SOLVEPNP_IPPE_SQUARE);
+
+                if (success) {
+                    rvecs.push(rvec);
+                    tvecs.push(tvec);
+                } else {
+                    rvec.delete();
+                    tvec.delete();
+                }
+            }
+
+            cameraMatrix.delete();
+            distortionCoeffs.delete();
+            markerPoints.delete();
+            return { rvecs, tvecs };
+        }
+
+        function processFrame() {
+            if (!isCvLoaded || !isTrackingRunning) return;
+
+            context.drawImage(player, 0, 0, canvas.width, canvas.height);
+            let src = cv.imread(canvas);
+            
+            let { markerCorners, markerIds } = detectArucoMarkers(src);
+
+            if (markerCorners.size() > 0) {
+                let { rvecs, tvecs } = estimatePoseSingleMarkers(markerCorners);
+
+                for (let i = 0; i < rvecs.length; i++) {
+                    console.log(`Marker ${i}:`);
+                    console.log(`Rotation Vector:`, rvecs[i].data64F);
+                    console.log(`Translation Vector:`, tvecs[i].data64F);
+                    rvecs[i].delete();
+                    tvecs[i].delete();
+                }
+            }
+
+            markerCorners.delete();
+            markerIds.delete();
+            src.delete();
+
+            if (isTrackingRunning) {
+                requestAnimationFrame(processFrame);
+            }
+        }
+
+        document.getElementById("toggleTracking").addEventListener("click", function () {
+            isTrackingRunning = !isTrackingRunning;
+            this.textContent = isTrackingRunning ? "ARマーカー検出 & ハンドトラッキング停止" : "ARマーカー検出 & ハンドトラッキング開始";
+            if (isTrackingRunning) {
+                processFrame();
+                hands.send({ image: player });
+            }
+        });
+    </script>
+</body>
 </html>
-<script>
-  const player = document.getElementById('player');
-  const canvas = document.getElementById('canvas');
-  const context = canvas.getContext('2d');
-  const captureButton = document.getElementById('capture');
-
-  const constraints = {
-    video: true,
-  };
-
-  //ArucoMarkerの検出プログラム、入力値imageは入力映像(入力画像)
-  function detectArucoMarkers(image) {
-    //辞書・検出パラメータ・恐らく補正パラメータの定義
-    //4*4のArucoMarkerじゃないと検出されないので注意
-    let dictionary = new cv.getPredefinedDictionary(cv.DICT_4X4_50);
-    let detectorParam = new cv.aruco_DetectorParameters();
-    let refineParam = new cv.aruco_RefineParameters(10,3,true);
-    //マーカーの角とIDを格納するためのもの
-    let markerCorners = new cv.MatVector();
-    let markerIds = new cv.Mat();
-    //定義3つを用いてアルコ検出器を使用する形を作る
-    let ArucoDetector  = new cv.aruco_ArucoDetector(dictionary,detectorParam,refineParam);
-    //入力映像、画像を元にマーカーのコーナーとIDを検出
-    ArucoDetector.detectMarkers(image,markerCorners,markerIds);
-    //出力確認,typeがid、rowとcolは個数のはず
-    console.log("markerIds:", markerIds);
-    console.log("markerIds type:", markerIds.type()); // CV_32S であることを確認
-    console.log("markerIds rows:", markerIds.rows);
-    console.log("markerIds cols:", markerIds.cols);
-
-    return { markerCorners, markerIds };
-  }
-
-  function estimatePoseSingleMarkers(corners) {
-    // Define the 3D points of the marker in its own coordinate system
-
-    //キャリブレーション結果のカメラ行列と歪み係数を入れている
-    let cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
-    1019.5941583961693,
-    0,
-    966.77475233152916,
-    0,
-    1020.8030299581322,
-    547.4419046301241,
-    0,
-    0,
-    1
-    ]);
-    let distortionCoeffs = cv.matFromArray(1, 5, cv.CV_64F, [
-    0.0712065075507054,
-    -0.14989132078402667,
-    0.00076008047695383125,
-    -0.0025758468287691216,
-    0.075464081068347955
-    ]);
-
-    //MarkerSizeの値[m]はマーカー自体の現実での大きさ
-    let MarkerSize = 0.060
-    let markerPoints = cv.matFromArray(4, 1, cv.CV_32FC3, [
-        -MarkerSize / 2, MarkerSize / 2, 0,
-        MarkerSize / 2, MarkerSize / 2, 0,
-        MarkerSize / 2, -MarkerSize / 2, 0,
-        -MarkerSize / 2, -MarkerSize / 2, 0
-    ]);
-
-    let rvecs = [];
-    let tvecs = [];
-
-    for (let i = 0; i < corners.size(); i++) {
-        let corner = corners.get(i);
-        let rvec = new cv.Mat();
-        let tvec = new cv.Mat();
-        let success = cv.solvePnP(markerPoints, corner, cameraMatrix, distortionCoeffs, rvec, tvec, false, cv.SOLVEPNP_IPPE_SQUARE);
-        
-        rvecs.push(rvec);
-        tvecs.push(tvec);
-    }
-
-    //メモリリーク防止
-    cameraMatrix.delete();
-    distortionCoeffs.delete();
-    markerPoints.delete(); // Clean up memory
-    return { rvecs, tvecs };
-  }
-
-  //ボタンを押すと実行される形だとOpenCVのロード完了後になっている？
-  captureButton.addEventListener('click', () => {
-    context.drawImage(player, 0, 0, canvas.width, canvas.height);
-    let src = cv.imread(canvas);
-
-    let { markerCorners, markerIds } = detectArucoMarkers(src);
-
-    //console.log("markerIds:", markerIds.data32S);  // マーカーIDの値を確認
-    //console.log("markerCorners size:", markerCorners.size());  // 検出されたマーカーの数を確認
-
-    let { rvecs, tvecs, trash } = estimatePoseSingleMarkers(markerCorners);
-
-    //出力確認用
-    for (let i = 0; i < rvecs.length; i++) {
-    console.log(`Marker ${i}:`);
-    console.log(`Rotation Vector:`, rvecs[i].data64F);
-    console.log(`Translation Vector:`, tvecs[i].data64F);
-    rvecs[i].delete();
-    tvecs[i].delete();
-    }
-
-    //メモリリーク防止
-    markerCorners.delete();
-    markerIds.delete();
-    src.delete();
-  });
-
-
-  // Attach the video stream to the video element and autoplay.
-  navigator.mediaDevices.getUserMedia(constraints)
-    .then((stream) => {
-      player.srcObject = stream;
-    });
-</script>
