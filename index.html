@@ -62,11 +62,11 @@
 
             if (results.multiHandLandmarks) {
                 for (const [handIndex, landmarks] of results.multiHandLandmarks.entries()) {
-                    console.log(`Hand ${handIndex + 1} Landmarks:`); // 手の番号を表示
+                    //console.log(`Hand ${handIndex + 1} Landmarks:`); // 手の番号を表示
 
                     // 各ランドマークの座標をコンソールに出力
                     landmarks.forEach((landmark, index) => {
-                        console.log(`Landmark ${index}: x: ${landmark.x}, y: ${landmark.y}, z: ${landmark.z}`);
+                        //console.log(`Landmark ${index}: x: ${landmark.x}, y: ${landmark.y}, z: ${landmark.z}`);
                     });
 
                     // ランドマークをキャンバスに描画
@@ -87,7 +87,7 @@
         }
 
         function detectArucoMarkers(image) {
-            let dictionary = new cv.getPredefinedDictionary(cv.DICT_4X4_50);
+            let dictionary = new cv.getPredefinedDictionary(cv.DICT_6X6_50);
             let detectorParam = new cv.aruco_DetectorParameters();
             let refineParam = new cv.aruco_RefineParameters(10, 3, true);
             let markerCorners = new cv.MatVector();
@@ -101,14 +101,24 @@
 
         function estimatePoseSingleMarkers(corners) {
             let cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
-                1019.59, 0, 966.77,
-                0, 1020.80, 547.44,
-                0, 0, 1
+                1018.8031913526505,
+                0,
+                966.3687199107801,
+                0,
+                1016.5572863094986,
+                509.14712773712756,
+                0,
+                0,
+                1
             ]);
             let distortionCoeffs = cv.matFromArray(1, 5, cv.CV_64F, [
-                0.0712, -0.1499, 0.00076, -0.00257, 0.0754
+                0.21011422384691603,
+                -0.55078108269720494,
+                -0.0055280880757881366,
+                0.001401219302638096,
+                0.46081215822664523
             ]);
-            let MarkerSize = 0.060;
+            let MarkerSize = 0.05;
             let markerPoints = cv.matFromArray(4, 1, cv.CV_32FC3, [
                 -MarkerSize / 2, MarkerSize / 2, 0,
                 MarkerSize / 2, MarkerSize / 2, 0,
@@ -125,8 +135,46 @@
                 let success = cv.solvePnP(markerPoints, corner, cameraMatrix, distortionCoeffs, rvec, tvec, false, cv.SOLVEPNP_IPPE_SQUARE);
 
                 if (success) {
-                    rvecs.push(rvec);
+                    // 回転行列を計算
+                    let rotationMatrix = new cv.Mat();
+                    cv.Rodrigues(rvec, rotationMatrix);
+
+                    // 回転行列の転置を計算
+                    let transposedRotationMatrix = new cv.Mat();
+                    cv.transpose(rotationMatrix, transposedRotationMatrix); // transpose() を cv.transpose() に変更
+
+                    // 転置行列のデータをログに出力
+                    //console.log(`Marker ${i} Rotation Matrix Transposed:`, transposedRotationMatrix.data64F);
+
+                    // (0, 0, 0) のベクトルを作成
+                    let zeroVec = new cv.Mat(3, 1, cv.CV_64F);
+                    zeroVec.data64F[0] = 0;
+                    zeroVec.data64F[1] = 0;
+                    zeroVec.data64F[2] = 0;
+
+                    // tvec から (0, 0, 0) のベクトルを引く
+                    let resultVec = new cv.Mat();
+                    cv.subtract(zeroVec, tvec, resultVec);
+
+                    // 結果をログに出力
+                    //console.log(`Marker ${i} Resulting Vector (from tvec - (0, 0, 0)):`, resultVec.data64F);
+
+                    // resultVec と transposedRotationMatrix の掛け算を行う
+                    let multipliedResult = new cv.Mat();
+                    cv.gemm(transposedRotationMatrix, resultVec, 1, new cv.Mat(), 0, multipliedResult);
+
+                    // 掛け算結果をログに出力
+                    console.log(`Marker ${i} Multiplied Result:`, multipliedResult.data64F);
+
+                    rvecs.push(transposedRotationMatrix);  // 転置された行列を保存
                     tvecs.push(tvec);
+
+                    // メモリ解放
+                    rotationMatrix.delete(); // rotationMatrix を先に削除
+                    transposedRotationMatrix.delete(); // transposedRotationMatrix を後で削除
+                    zeroVec.delete(); // zeroVec を削除
+                    resultVec.delete(); // resultVec を削除
+                    multipliedResult.delete(); // multipliedResult を削除
                 } else {
                     rvec.delete();
                     tvec.delete();
@@ -152,9 +200,9 @@
 
                 for (let i = 0; i < rvecs.length; i++) {
                     console.log(`Marker ${i}:`);
-                    console.log(`Rotation Vector:`, rvecs[i].data64F);
-                    console.log(`Translation Vector:`, tvecs[i].data64F);
-                    rvecs[i].delete();
+                    //console.log(`Rotation Vector:`, rvecs[i].data64F);
+                    //console.log(`Translation Vector:`, tvecs[i].data64F);
+
                     tvecs[i].delete();
                 }
             }
