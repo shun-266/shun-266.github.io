@@ -5,25 +5,149 @@
     <title>AR Detector</title>
 </head>
 <body>
+    <p>ID: <span id="my-id"></span></p>
     <div>
-        <video id="player" playsinline muted autoplay></video>
+      room name: <input id="room-name" type="text" />
+      <button id="join">join</button>
+      <button id="leave">leave</button>
     </div>
+    <video id="local-video" width="400px" muted playsinline></video>
+    <div id="button-area"></div>
+    <div id="remote-media-area"></div>
     <div>
         <button id="toggleTracking">ARマーカー検出 & ハンドトラッキング開始</button>
     </div>
     <div>
         <canvas id="canvas" width="640" height="480"></canvas>
     </div>
-
+    <div>
+        <video id="player" playsinline muted autoplay style="visibility: hidden;"></video>
+    </div>
+    <!-- OpenCV -->
     <script src="https://docs.opencv.org/4.10.0/opencv.js"></script>
+    <!-- Mediapipe -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-
+    <!-- Skyway -->
+    <script src="https://cdn.jsdelivr.net/npm/@skyway-sdk/room/dist/skyway_room-latest.js"></script>
     <script>
+        //skywayで用いる各種モジュール
+        const { nowInSec, SkyWayAuthToken, SkyWayContext, SkyWayRoom, SkyWayStreamFactory, uuidV4 } = skyway_room;
+
+        const buttonArea = document.getElementById("button-area");
+        const remoteMediaArea = document.getElementById("remote-media-area");
+        const roomNameInput = document.getElementById("room-name");
+        const myId = document.getElementById("my-id");
+        const joinButton = document.getElementById("join");
+        const leaveButton = document.getElementById('leave');
+
+        const token = new SkyWayAuthToken({
+        jti: uuidV4(),
+        iat: nowInSec(),
+        exp: nowInSec() + 60 * 60 * 24,
+        version: 3,
+        scope: {
+            appId: "af868855-f897-4dd2-9098-512871f59642",
+            rooms: [
+            {
+                name: "*",
+                methods: ["create", "close", "updateMetadata"],
+                member: {
+                name: "*",
+                methods: ["publish", "subscribe", "updateMetadata"],
+                },
+            },
+            ],
+        },
+        }).encode("wwAmiNdsFQnwnsBfsuTTYhOEgKEpfeuAemIuM06MPo8=");
+
+        (async () => {
+            // 1
+            const localVideo = document.getElementById("local-video");
+
+            const { audio, video } = await SkyWayStreamFactory.createMicrophoneAudioAndCameraStream(); // 2
+
+            video.attach(localVideo); // 3
+            await localVideo.play(); // 4
+
+            joinButton.onclick = async () => {
+                if (roomNameInput.value === "") return;
+
+                const context = await SkyWayContext.Create(token);
+
+                const room = await SkyWayRoom.FindOrCreate(context, {
+                type: "p2p",
+                name: roomNameInput.value,
+                });
+
+                const me = await room.join();
+
+                myId.textContent = me.id;
+
+                await me.publish(audio);
+                await me.publish(video);
+
+                const subscribeAndAttach = (publication) => {
+                    // 3
+                    if (publication.publisher.id === me.id) return;
+
+                    const subscribeButton = document.createElement("button"); // 3-1
+                    subscribeButton.id = `subscribe-button-${publication.id}`;
+                    subscribeButton.textContent = `${publication.publisher.id}: ${publication.contentType}`;
+
+                    buttonArea.appendChild(subscribeButton);
+
+                    subscribeButton.onclick = async () => {
+                        // 3-2
+                        const { stream } = await me.subscribe(publication.id); // 3-2-1
+
+                        let newMedia; // 3-2-2
+                        switch (stream.track.kind) {
+                        case "video":
+                            newMedia = document.createElement("video");
+                            newMedia.playsInline = true;
+                            newMedia.autoplay = true;
+                            break;
+                        case "audio":
+                            newMedia = document.createElement("audio");
+                            newMedia.controls = true;
+                            newMedia.autoplay = true;
+                            break;
+                        default:
+                            return;
+                        }
+                        newMedia.id = `media-${publication.id}`;
+                        stream.attach(newMedia); // 3-2-3
+                        remoteMediaArea.appendChild(newMedia);
+                    };
+                };
+
+                
+
+                room.publications.forEach(subscribeAndAttach); // 1
+
+                room.onStreamPublished.add((e) => {
+                // 2
+                subscribeAndAttach(e.publication);
+                });
+
+                leaveButton.onclick = async () => {
+                await me.leave();
+                await room.dispose();
+
+                myId.textContent = "";
+                buttonArea.replaceChildren();
+                remoteMediaArea.replaceChildren();
+                };
+            };
+
+        })(); // 1
+
+
         const player = document.getElementById('player');
         const canvas = document.getElementById('canvas');
-        const context = canvas.getContext('2d');
+        const context_2d = canvas.getContext('2d');
 
         let isCvLoaded = false;
         let isTrackingRunning = false;
@@ -57,8 +181,8 @@
         function onResults(results) {
             if (!isTrackingRunning) return;
 
-            context.clearRect(0, 0, canvas.width, canvas.height);
-            context.drawImage(player, 0, 0, canvas.width, canvas.height);
+            context_2d.clearRect(0, 0, canvas.width, canvas.height);
+            context_2d.drawImage(player, 0, 0, canvas.width, canvas.height);
 
             if (results.multiHandLandmarks) {
                 for (const [handIndex, landmarks] of results.multiHandLandmarks.entries()) {
@@ -73,10 +197,10 @@
                     landmarks.forEach((landmark) => {
                         let x = landmark.x * canvas.width;
                         let y = landmark.y * canvas.height;
-                        context.beginPath();
-                        context.arc(x, y, 5, 0, 2 * Math.PI);
-                        context.fillStyle = "red";
-                        context.fill();
+                        context_2d.beginPath();
+                        context_2d.arc(x, y, 5, 0, 2 * Math.PI);
+                        context_2d.fillStyle = "red";
+                        context_2d.fill();
                 });
                 }
             }
@@ -190,7 +314,7 @@
         function processFrame() {
             if (!isCvLoaded || !isTrackingRunning) return;
 
-            context.drawImage(player, 0, 0, canvas.width, canvas.height);
+            context_2d.drawImage(player, 0, 0, canvas.width, canvas.height);
             let src = cv.imread(canvas);
             
             let { markerCorners, markerIds } = detectArucoMarkers(src);
