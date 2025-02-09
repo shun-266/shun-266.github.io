@@ -178,37 +178,71 @@
             })
             .catch((err) => console.error("Error accessing camera:", err));
 
-        function onResults(results) {
-            if (!isTrackingRunning) return;
 
+        function imageToCameraCoords(pixelX, pixelY, cameraMatrix) {
+            let fx = cameraMatrix.data64F[0];  // 焦点距離 (fx)
+            let fy = cameraMatrix.data64F[4];  // 焦点距離 (fy)
+            let cx = cameraMatrix.data64F[2];  // 主点座標 (cx)
+            let cy = cameraMatrix.data64F[5];  // 主点座標 (cy)
+
+            // Z = 1 と仮定してカメラ座標を求める
+            let camX = (pixelX - cx) / fx;
+            let camY = (pixelY - cy) / fy;
+            let camZ = 1.0;  // 仮の値
+
+            return [camX, camY, camZ];
+        }
+
+        function cameraToWorldCoords(camX, camY, camZ, rotationMatrix, translationVector) {
+            // カメラ座標を行列として作成
+            let camPoint = cv.matFromArray(3, 1, cv.CV_64F, [camX, camY, camZ]);
+
+            // 並進ベクトルをカメラ座標から引く
+            let relativePoint = new cv.Mat();
+            cv.subtract(camPoint, translationVector, relativePoint);
+
+            // 回転行列の逆行列を計算（転置で代用）
+            let invRotationMatrix = new cv.Mat();
+            cv.transpose(rotationMatrix, invRotationMatrix);
+
+            // カメラ座標をワールド座標に変換
+            let worldPoint = new cv.Mat();
+            cv.gemm(invRotationMatrix, relativePoint, 1, new cv.Mat(), 0, worldPoint);
+
+            // 結果を取得
+            let worldCoords = [worldPoint.data64F[0], worldPoint.data64F[1], worldPoint.data64F[2]];
+
+            // メモリ解放
+            camPoint.delete();
+            relativePoint.delete();
+            invRotationMatrix.delete();
+            worldPoint.delete();
+
+            return worldCoords;
+        }
+
+        function onResults(results) {
+            context_2d.save();
             context_2d.clearRect(0, 0, canvas.width, canvas.height);
             context_2d.drawImage(player, 0, 0, canvas.width, canvas.height);
 
             if (results.multiHandLandmarks) {
-                for (const [handIndex, landmarks] of results.multiHandLandmarks.entries()) {
-                    //console.log(`Hand ${handIndex + 1} Landmarks:`); // 手の番号を表示
-
-                    // 各ランドマークの座標をコンソールに出力
-                    landmarks.forEach((landmark, index) => {
-                        //console.log(`Landmark ${index}: x: ${landmark.x}, y: ${landmark.y}, z: ${landmark.z}`);
+                for (const landmarks of results.multiHandLandmarks) {
+                    window.drawConnectors(context_2d, landmarks, HAND_CONNECTIONS, {
+                        color: '#00FF00', lineWidth: 5
                     });
-
-                    // ランドマークをキャンバスに描画
-                    landmarks.forEach((landmark) => {
-                        let x = landmark.x * canvas.width;
-                        let y = landmark.y * canvas.height;
-                        context_2d.beginPath();
-                        context_2d.arc(x, y, 5, 0, 2 * Math.PI);
-                        context_2d.fillStyle = "red";
-                        context_2d.fill();
-                });
+                    window.drawLandmarks(context_2d, landmarks, {
+                        color: '#FF0000', lineWidth: 2
+                    });
                 }
             }
+            context_2d.restore();
 
             if (isTrackingRunning) {
-                requestAnimationFrame(() => hands.send({image: player}));
+                requestAnimationFrame(() => hands.send({ image: player }));
             }
         }
+
 
         function detectArucoMarkers(image) {
             let dictionary = new cv.getPredefinedDictionary(cv.DICT_6X6_50);
@@ -225,21 +259,13 @@
 
         function estimatePoseSingleMarkers(corners) {
             let cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
-                1018.8031913526505,
-                0,
-                966.3687199107801,
-                0,
-                1016.5572863094986,
-                509.14712773712756,
-                0,
-                0,
-                1
+                1018.8031913526505, 0, 966.3687199107801,
+                0, 1016.5572863094986, 509.14712773712756,
+                0, 0, 1
             ]);
             let distortionCoeffs = cv.matFromArray(1, 5, cv.CV_64F, [
-                0.21011422384691603,
-                -0.55078108269720494,
-                -0.0055280880757881366,
-                0.001401219302638096,
+                0.21011422384691603, -0.55078108269720494, 
+                -0.0055280880757881366, 0.001401219302638096, 
                 0.46081215822664523
             ]);
             let MarkerSize = 0.05;
@@ -250,7 +276,7 @@
                 -MarkerSize / 2, -MarkerSize / 2, 0
             ]);
 
-            let rvecs = [], tvecs = [];
+            let rvecs = [], tvecs = [], camera_positions = [];
 
             for (let i = 0; i < corners.size(); i++) {
                 let corner = corners.get(i);
@@ -259,56 +285,47 @@
                 let success = cv.solvePnP(markerPoints, corner, cameraMatrix, distortionCoeffs, rvec, tvec, false, cv.SOLVEPNP_IPPE_SQUARE);
 
                 if (success) {
-                    // 回転行列を計算
-                    let rotationMatrix = new cv.Mat();
-                    cv.Rodrigues(rvec, rotationMatrix);
+                    let camera_position = computeCamerpos(rvec, tvec);
+                    console.log(`Marker ${i} camera_position:`, camera_position.data64F);
 
-                    // 回転行列の転置を計算
-                    let transposedRotationMatrix = new cv.Mat();
-                    cv.transpose(rotationMatrix, transposedRotationMatrix); // transpose() を cv.transpose() に変更
-
-                    // 転置行列のデータをログに出力
-                    //console.log(`Marker ${i} Rotation Matrix Transposed:`, transposedRotationMatrix.data64F);
-
-                    // (0, 0, 0) のベクトルを作成
-                    let zeroVec = new cv.Mat(3, 1, cv.CV_64F);
-                    zeroVec.data64F[0] = 0;
-                    zeroVec.data64F[1] = 0;
-                    zeroVec.data64F[2] = 0;
-
-                    // tvec から (0, 0, 0) のベクトルを引く
-                    let resultVec = new cv.Mat();
-                    cv.subtract(zeroVec, tvec, resultVec);
-
-                    // 結果をログに出力
-                    //console.log(`Marker ${i} Resulting Vector (from tvec - (0, 0, 0)):`, resultVec.data64F);
-
-                    // resultVec と transposedRotationMatrix の掛け算を行う
-                    let multipliedResult = new cv.Mat();
-                    cv.gemm(transposedRotationMatrix, resultVec, 1, new cv.Mat(), 0, multipliedResult);
-
-                    // 掛け算結果をログに出力
-                    console.log(`Marker ${i} Multiplied Result:`, multipliedResult.data64F);
-
-                    rvecs.push(transposedRotationMatrix);  // 転置された行列を保存
+                    rvecs.push(rvec);
                     tvecs.push(tvec);
-
-                    // メモリ解放
-                    rotationMatrix.delete(); // rotationMatrix を先に削除
-                    transposedRotationMatrix.delete(); // transposedRotationMatrix を後で削除
-                    zeroVec.delete(); // zeroVec を削除
-                    resultVec.delete(); // resultVec を削除
-                    multipliedResult.delete(); // multipliedResult を削除
+                    camera_positions.push(camera_position);  // camera_position も保存
                 } else {
                     rvec.delete();
                     tvec.delete();
                 }
             }
 
+            // メモリ解放
             cameraMatrix.delete();
             distortionCoeffs.delete();
             markerPoints.delete();
-            return { rvecs, tvecs };
+
+            return { rvecs, tvecs, camera_positions };  // camera_positions も返す
+        }
+
+        function computeCamerpos(rvec, tvec) {
+            let rotationMatrix = new cv.Mat();
+            cv.Rodrigues(rvec, rotationMatrix);
+
+            let transposedRotationMatrix = new cv.Mat();
+            cv.transpose(rotationMatrix, transposedRotationMatrix);
+
+            let zeroVec = cv.Mat.zeros(3, 1, cv.CV_64F);
+            let resultVec = new cv.Mat();
+            cv.subtract(zeroVec, tvec, resultVec);
+
+            let camera_position = new cv.Mat();
+            cv.gemm(transposedRotationMatrix, resultVec, 1, new cv.Mat(), 0, camera_position);
+
+            // メモリ解放（不要なMatを削除）
+            rotationMatrix.delete();
+            transposedRotationMatrix.delete();
+            zeroVec.delete();
+            resultVec.delete();
+
+            return camera_position;  // camera_position は呼び出し側で delete する
         }
 
         function processFrame() {
@@ -320,14 +337,11 @@
             let { markerCorners, markerIds } = detectArucoMarkers(src);
 
             if (markerCorners.size() > 0) {
-                let { rvecs, tvecs } = estimatePoseSingleMarkers(markerCorners);
+                let { rvecs, tvecs, camera_positions } = estimatePoseSingleMarkers(markerCorners);
 
-                for (let i = 0; i < rvecs.length; i++) {
-                    console.log(`Marker ${i}:`);
-                    //console.log(`Rotation Vector:`, rvecs[i].data64F);
-                    //console.log(`Translation Vector:`, tvecs[i].data64F);
-
-                    tvecs[i].delete();
+                for (let i = 0; i < camera_positions.length; i++) {
+                    console.log(`Marker ${i} Camera Position:`, camera_positions[i].data64F);
+                    camera_positions[i].delete();  // ここで解放！
                 }
             }
 
