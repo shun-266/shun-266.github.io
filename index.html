@@ -1,8 +1,40 @@
 <!DOCTYPE html>
 <html>
 <head>
+<style>
+    .parent
+    {
+        width: 640px;
+        height: 480px;
+        position: relative;
+        padding: 0em 0em;
+        margin: 0;
+    }
+    .l1{
+        top: 0px;
+        left: 0px;
+        width: 640px;
+        height: 480px;
+        padding: 0em 0em;
+    }
+    .l2{
+        top: 0px;
+        left: 0px;
+        width: 640px;
+        height: 480px;
+        position: absolute;
+        padding: 0em 0em;
+    }
+    .l3{
+        top: 0px;
+        left: 0px;
+        width: 640px;
+        height: 480px;
+        padding: 0em 0em;
+    }
+</style>
     <meta charset="UTF-8">
-    <title>AR Detector</title>
+    <title>指導者側</title>
 </head>
 <body>
     <p>ID: <span id="my-id"></span></p>
@@ -11,17 +43,28 @@
       <button id="join">join</button>
       <button id="leave">leave</button>
     </div>
-    <video id="local-video" width="400px" muted playsinline></video>
+    <div>
+    <video id="local-video" width="480px" muted playsinline></video>
+    </div>
     <div id="button-area"></div>
-    <div id="remote-media-area"></div>
     <div>
         <button id="toggleTracking">ARマーカー検出 & ハンドトラッキング開始</button>
+        <canvas id="canvas_map" width="200" height="200" style="border:1px solid black;"></canvas>
+    </div>
+    </div>
+    <div class ="parent">
+        <div class ="l2">
+            <canvas id="canvas" width="640" height="480"></canvas>
+        </div>
+        <div class ="l1">
+            <video id="player_2" playsinline autoplay></video>
+        </div>
     </div>
     <div>
-        <canvas id="canvas" width="640" height="480"></canvas>
+        <video id="player" playsinline muted autoplay></video>
     </div>
     <div>
-        <video id="player" playsinline muted autoplay style="visibility: hidden;"></video>
+        <canvas id="canvas_2" width="640" height="480"></canvas>
     </div>
     <!-- OpenCV -->
     <script src="https://docs.opencv.org/4.10.0/opencv.js"></script>
@@ -118,15 +161,13 @@
                             return;
                         }
                         newMedia.id = `media-${publication.id}`;
-                        stream.attach(newMedia); // 3-2-3
-                        remoteMediaArea.appendChild(newMedia);
+                        stream.attach(player_2); // 3-2-3
                     };
                 };
 
                 
 
                 room.publications.forEach(subscribeAndAttach); // 1
-
                 room.onStreamPublished.add((e) => {
                 // 2
                 subscribeAndAttach(e.publication);
@@ -138,16 +179,22 @@
 
                 myId.textContent = "";
                 buttonArea.replaceChildren();
-                remoteMediaArea.replaceChildren();
                 };
             };
 
         })(); // 1
 
-
+        // const localVideo_1 = document.getElementById('local-video');
         const player = document.getElementById('player');
+        const player_2 = document.getElementById('player_2');
         const canvas = document.getElementById('canvas');
+        const canvas_2 = document.getElementById('canvas_2');
+        const canvas_map = document.getElementById("canvas_map");
         const context_2d = canvas.getContext('2d');
+        const context_2_2d = canvas_2.getContext('2d');
+        const context_map = canvas_map.getContext("2d");
+        context_2d.scale(-1,1);
+        context_2d.translate(-canvas.width,0);
 
         let isCvLoaded = false;
         let isTrackingRunning = false;
@@ -178,53 +225,10 @@
             })
             .catch((err) => console.error("Error accessing camera:", err));
 
-
-        function imageToCameraCoords(pixelX, pixelY, cameraMatrix) {
-            let fx = cameraMatrix.data64F[0];  // 焦点距離 (fx)
-            let fy = cameraMatrix.data64F[4];  // 焦点距離 (fy)
-            let cx = cameraMatrix.data64F[2];  // 主点座標 (cx)
-            let cy = cameraMatrix.data64F[5];  // 主点座標 (cy)
-
-            // Z = 1 と仮定してカメラ座標を求める
-            let camX = (pixelX - cx) / fx;
-            let camY = (pixelY - cy) / fy;
-            let camZ = 1.0;  // 仮の値
-
-            return [camX, camY, camZ];
-        }
-
-        function cameraToWorldCoords(camX, camY, camZ, rotationMatrix, translationVector) {
-            // カメラ座標を行列として作成
-            let camPoint = cv.matFromArray(3, 1, cv.CV_64F, [camX, camY, camZ]);
-
-            // 並進ベクトルをカメラ座標から引く
-            let relativePoint = new cv.Mat();
-            cv.subtract(camPoint, translationVector, relativePoint);
-
-            // 回転行列の逆行列を計算（転置で代用）
-            let invRotationMatrix = new cv.Mat();
-            cv.transpose(rotationMatrix, invRotationMatrix);
-
-            // カメラ座標をワールド座標に変換
-            let worldPoint = new cv.Mat();
-            cv.gemm(invRotationMatrix, relativePoint, 1, new cv.Mat(), 0, worldPoint);
-
-            // 結果を取得
-            let worldCoords = [worldPoint.data64F[0], worldPoint.data64F[1], worldPoint.data64F[2]];
-
-            // メモリ解放
-            camPoint.delete();
-            relativePoint.delete();
-            invRotationMatrix.delete();
-            worldPoint.delete();
-
-            return worldCoords;
-        }
-
         function onResults(results) {
             context_2d.save();
             context_2d.clearRect(0, 0, canvas.width, canvas.height);
-            context_2d.drawImage(player, 0, 0, canvas.width, canvas.height);
+            context_2d.drawImage(canvas, 0, 0, canvas.width, canvas.height);
 
             if (results.multiHandLandmarks) {
                 for (const landmarks of results.multiHandLandmarks) {
@@ -286,7 +290,6 @@
 
                 if (success) {
                     let camera_position = computeCamerpos(rvec, tvec);
-                    console.log(`Marker ${i} camera_position:`, camera_position.data64F);
 
                     rvecs.push(rvec);
                     tvecs.push(tvec);
@@ -331,17 +334,22 @@
         function processFrame() {
             if (!isCvLoaded || !isTrackingRunning) return;
 
-            context_2d.drawImage(player, 0, 0, canvas.width, canvas.height);
-            let src = cv.imread(canvas);
+            context_2_2d.drawImage(player_2, 0, 0, canvas_2.width, canvas_2.height);
+            let src = cv.imread(canvas_2);
             
             let { markerCorners, markerIds } = detectArucoMarkers(src);
 
             if (markerCorners.size() > 0) {
                 let { rvecs, tvecs, camera_positions } = estimatePoseSingleMarkers(markerCorners);
 
+                // processFrame() の中でカメラ座標を取得した後に呼び出す
+                if (camera_positions.length > 0) {
+                    drawCameraPositionOnMap(camera_positions);
+                }
                 for (let i = 0; i < camera_positions.length; i++) {
-                    console.log(`Marker ${i} Camera Position:`, camera_positions[i].data64F);
-                    camera_positions[i].delete();  // ここで解放！
+                    let markerId = markerIds.data32S[i]; // マーカーのIDを取得
+                    console.log(`Marker ID: ${markerId}, Camera Position:`, camera_positions[i].data64F);
+                    camera_positions[i].delete();  // メモリ解放
                 }
             }
 
@@ -351,6 +359,31 @@
 
             if (isTrackingRunning) {
                 requestAnimationFrame(processFrame);
+            }
+            
+        }
+
+        // カメラ座標を MAP 上の座標に変換する関数
+        function mapCameraPositionToCanvas(x, y, canvasWidth, canvasHeight) {
+            const scale = 50;  // 座標をキャンバスサイズにスケーリング
+            const centerX = canvasWidth / 2;
+            const centerY = 0;
+
+            return {
+                mappedX: centerX + x * scale,
+                mappedY: centerY + y * scale  // Y軸を上下反転
+            };
+        }
+
+        // カメラ座標を描画する関数
+        function drawCameraPositionOnMap(camera_positions) {
+            context_map.clearRect(0, 0, canvas_map.width, canvas_map.height);  // 画面クリア
+            context_map.fillStyle = "red";  // 点の色
+
+            for (let i = 0; i < camera_positions.length; i++) {
+                let camPos = camera_positions[i].data64F;  // カメラ座標データ
+                let { mappedX, mappedY } = mapCameraPositionToCanvas(camPos[0], camPos[2], canvas_map.width, canvas_map.height);
+                context_map.fillRect(mappedX, mappedY, 5, 5);  // 5x5 の点を描画
             }
         }
 
