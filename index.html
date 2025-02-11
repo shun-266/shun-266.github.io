@@ -348,7 +348,8 @@
                 }
                 for (let i = 0; i < camera_positions.length; i++) {
                     let markerId = markerIds.data32S[i]; // マーカーのIDを取得
-                    console.log(`Marker ID: ${markerId}, Camera Position:`, camera_positions[i].data64F);
+                    //console.log(`Marker ID: ${markerId}, Camera Position:`, camera_positions[i].data64F);
+                    context_map.fillText(`ID ${markerId}`,80,10);
                     camera_positions[i].delete();  // メモリ解放
                 }
             }
@@ -371,7 +372,7 @@
 
             return {
                 mappedX: centerX + x * scale,
-                mappedY: centerY + y * scale  // Y軸を上下反転
+                mappedY: centerY + y * scale 
             };
         }
 
