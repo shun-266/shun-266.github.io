@@ -1,0 +1,5 @@
+C:/Users/shuns/Documents/GitHub/shun-266.github.io/the study/.utmp/RelWithDebInfo/5r6p1241/arm64-v8a/CMakeFiles/edit_cache.dir
+C:/Users/shuns/Documents/GitHub/shun-266.github.io/the study/.utmp/RelWithDebInfo/5r6p1241/arm64-v8a/CMakeFiles/rebuild_cache.dir
+C:/Users/shuns/Documents/GitHub/shun-266.github.io/the study/.utmp/RelWithDebInfo/5r6p1241/arm64-v8a/GameActivity/CMakeFiles/game.dir
+C:/Users/shuns/Documents/GitHub/shun-266.github.io/the study/.utmp/RelWithDebInfo/5r6p1241/arm64-v8a/GameActivity/CMakeFiles/edit_cache.dir
+C:/Users/shuns/Documents/GitHub/shun-266.github.io/the study/.utmp/RelWithDebInfo/5r6p1241/arm64-v8a/GameActivity/CMakeFiles/rebuild_cache.dir
